@@ -1,0 +1,47 @@
+{
+    "name": "Divyansh Tiwari",
+    "imgUrl": "https://avatars.githubusercontent.com/u/105380441?v=4",
+    "role": "Software Engineer",
+    "about": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+    "email": "",
+    "contact": "9876543210",
+
+    "socials": [
+        {
+            "name": "GitHub",
+            "iconUrl": "https://cdn-icons-png.flaticon.com/512/25/25231.png",
+            "url": "https://github.com/Divyansh-Official"
+        }
+    ],
+
+    "Skills": [
+        {
+            "backend": [
+                {
+                    "name": "JAVA",
+                    "iconUrl": "https://cdn-icons-png.flaticon.com/512/226/226777.png"
+                }
+            ]
+        }
+    ],
+
+    "Projects": [
+        {
+            "name": "Project 1",
+            "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+            "url": "",
+            "repositoryUrl": "",
+            "imgUrl": {
+                    "thumbnailUrl": "https://via.placeholder.com/150",
+                    "fullSizeUrl": "https://via.placeholder.com/600"
+            },
+
+            "techStack": [
+                {
+                    "name": "React",
+                    "iconUrl": "https://cdn-icons-png.flaticon.com/512/1126/1126012.png"
+                }
+            ]            
+        }
+    ]
+}

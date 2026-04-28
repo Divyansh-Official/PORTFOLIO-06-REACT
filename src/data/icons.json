@@ -1,0 +1,30 @@
+[
+  {
+    "id"     : "home",
+    "label"  : "Home",
+    "href"   : "#home",
+    "section": "home",
+    "iconUrl": "https://cdn-icons-png.flaticon.com/512/1946/1946488.png"
+  },
+  {
+    "id"     : "about",
+    "label"  : "About",
+    "href"   : "#about",
+    "section": "about",
+    "iconUrl": "https://cdn-icons-png.flaticon.com/512/1077/1077063.png"
+  },
+  {
+    "id"     : "projects",
+    "label"  : "Projects",
+    "href"   : "#projects",
+    "section": "projects",
+    "iconUrl": "https://cdn-icons-png.flaticon.com/512/1087/1087815.png"
+  },
+  {
+    "id"     : "contact",
+    "label"  : "Contact",
+    "href"   : "#contact",
+    "section": "contact",
+    "iconUrl": "https://cdn-icons-png.flaticon.com/512/732/732200.png"
+  }
+]
