@@ -12,7 +12,7 @@ function App() {
   useStringTunePositionTracker(isLoaded);
 
   return (
-    <div className="bg-black min-h-screen">
+    <div className="bg-[#0d0d0d] min-h-screen">
       <AnimatePresence mode="wait">
         {!isLoaded ? (
           // Key is essential for AnimatePresence to track the component

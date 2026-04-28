@@ -21,7 +21,7 @@ interface StringTuneInstance {
 }
 
 // ── hook ───────────────────────────────────────────
-export function useStringTunePositionTracker() {
+export function useStringTunePositionTracker(isLoaded: boolean) {
   useEffect(() => {
     const SCRIPT_SRC =
       'https://unpkg.com/@fiddle-digital/string-tune@1.1.55/dist/index.js';

@@ -99,7 +99,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onReady }) => {
           style={{
             // vmin is the KEY unit: smaller of vw/vh
             // Works perfectly on portrait phones AND landscape tablets
-            fontSize: 'clamp(5rem, 20vmin, 13rem)',
+            fontSize: 'clamp(5rem, 10vmin, 13rem)',
             fontFamily: '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif',
             color: '#ffffff',
             fontWeight: 100,
@@ -110,7 +110,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onReady }) => {
             textShadow: '0 0 60px rgba(255,255,255,0.06)',
           }}
         >
-          べ
+          ディヴヤンシュ
         </motion.span>
       </div>
 

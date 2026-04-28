@@ -1,443 +1,436 @@
-import React, { useEffect, useRef, useState } from 'react';
-import NavBar from '../components/navBar';
-import { Logo } from '../components/logo';
-import info from '../data/info.json';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import NavBar from '../components/navBar';
+import info from '../data/info.json';
 
 gsap.registerPlugin(ScrollTrigger);
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const SCROLL_MULTIPLIER = 5; // total scroll = 5x viewport height
+const frameSrc = (i: number) =>
+  `/Frames/ezgif-frame-${String(i).padStart(3, '0')}.png`;
 
-const pad = (n: number) => String(n).padStart(3, '0');
-
+// ─── HELPER ───────────────────────────────────────────────────────────────────
 const loadImage = (src: string): Promise<HTMLImageElement> =>
   new Promise((res, rej) => {
-    const img = new Image();
-    img.src = src;
+    const img   = new Image();
+    img.src     = src;
     img.onload  = () => res(img);
-    img.onerror = () => rej(new Error(`Failed: ${src}`));
+    img.onerror = () => rej();
   });
 
-// ─── component ──────────────────────────────────────────────────────────────
-
+// ─── COMPONENT ────────────────────────────────────────────────────────────────
 export const Hero: React.FC = () => {
-  const sectionRef    = useRef<HTMLElement>(null);
+  // Refs
+  const wrapperRef    = useRef<HTMLDivElement>(null);
+  const stickyRef     = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const nameRef       = useRef<HTMLHeadingElement>(null);
   const roleRef       = useRef<HTMLParagraphElement>(null);
   const aboutRef      = useRef<HTMLParagraphElement>(null);
   const socialsRef    = useRef<HTMLDivElement>(null);
-  const scrollHintRef = useRef<HTMLDivElement>(null);
+  const hintRef       = useRef<HTMLDivElement>(null);
+  const framesRef     = useRef<HTMLImageElement[]>([]);
+  const currentIdx    = useRef(0);
+  const lastDraw      = useRef(0);
+  const frameCountRef = useRef(0);
 
-  const framesRef  = useRef<HTMLImageElement[]>([]);
-  const currentIdx = useRef(0);
-
+  // State
+  const [loaded,     setLoaded]     = useState(false);
+  const [loadPct,    setLoadPct]    = useState(0);
   const [frameCount, setFrameCount] = useState(0);
-  const [loaded, setLoaded]         = useState(false);
-  const [loadPct, setLoadPct]       = useState(0);
 
-  // ── auto-detect frame count ──────────────────────────────────────────────
-  useEffect(() => {
-    (async () => {
-      let count = 0;
-      while (count < 300) {
-        try {
-          await loadImage(`/Frames/ezgif-frame-${pad(count + 1)}.png`);
-          count++;
-        } catch {
-          break;
-        }
-      }
-      setFrameCount(count || 1);
-    })();
-  }, []);
-
-  // ── preload all frames ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!frameCount) return;
-    const srcs = Array.from(
-      { length: frameCount },
-      (_, i) => `/Frames/ezgif-frame-${pad(i + 1)}.png`
-    );
-    let done = 0;
-    Promise.all(
-      srcs.map(src =>
-        loadImage(src).then(img => {
-          done++;
-          setLoadPct(Math.round((done / frameCount) * 100));
-          return img;
-        })
-      )
-    ).then(imgs => {
-      framesRef.current = imgs;
-      setLoaded(true);
-    });
-  }, [frameCount]);
-
-  // ── draw helper — COVER fill (Math.max = no black bars) ─────────────────
-  const drawFrame = (index: number) => {
+  // ── DRAW: pixel-perfect cover fill ────────────────────────────────────────
+  const draw = useCallback((index: number) => {
     const canvas = canvasRef.current;
     const img    = framesRef.current[index];
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
+    if (!canvas || !img?.complete) return;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    // sync pixel buffer to CSS size
-    canvas.width  = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    // Match canvas buffer to its CSS size
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width  = W;
+      canvas.height = H;
+    }
 
-    // COVER: Math.max fills whole canvas — no letterbox bars
-    const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
-    const x = (canvas.width  - img.width  * scale) / 2;
-    const y = (canvas.height - img.height * scale) / 2;
+    // object-fit: cover math
+    const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    const sw = img.naturalWidth  * scale;
+    const sh = img.naturalHeight * scale;
+    const sx = (W - sw) / 2;
+    const sy = (H - sh) / 2;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-  };
+    ctx.drawImage(img, sx, sy, sw, sh);
+  }, []);
 
-  // ── GSAP setup ───────────────────────────────────────────────────────────
+  // ── DRAW THROTTLED @ 30fps ────────────────────────────────────────────────
+  const drawAt = useCallback((index: number) => {
+    const now   = performance.now();
+    const clamped = Math.max(0, Math.min(index, frameCountRef.current - 1));
+    if (
+      clamped === currentIdx.current &&
+      now - lastDraw.current < 33
+    ) return;
+    currentIdx.current = clamped;
+    lastDraw.current   = now;
+    draw(clamped);
+  }, [draw]);
+
+  // ── AUTO-DETECT + PRELOAD FRAMES ─────────────────────────────────────────
   useEffect(() => {
-    if (!loaded || !frameCount) return;
+    let cancelled = false;
 
-    drawFrame(0);
+    (async () => {
+      // 1. Detect count
+      let count = 0;
+      while (count < 400) {
+        try   { await loadImage(frameSrc(count + 1)); count++; }
+        catch { break; }
+      }
+      if (cancelled || count === 0) return;
+
+      frameCountRef.current = count;
+      setFrameCount(count);
+
+      // 2. Parallel preload
+      let done = 0;
+      const imgs = await Promise.all(
+        Array.from({ length: count }, (_, i) =>
+          loadImage(frameSrc(i + 1)).then(img => {
+            if (!cancelled) {
+              done++;
+              setLoadPct(Math.round((done / count) * 100));
+            }
+            return img;
+          })
+        )
+      );
+      if (cancelled) return;
+      framesRef.current = imgs;
+      setLoaded(true);
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── RESIZE ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onResize = () => {
+      draw(currentIdx.current);
+      ScrollTrigger.refresh();
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [draw]);
+
+  // ── GSAP ScrollTrigger ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!loaded || frameCount === 0) return;
+
     ScrollTrigger.getAll().forEach(t => t.kill());
 
-    const section  = sectionRef.current!;
-    const STORY_PX = window.innerHeight * 4;
+    // Draw first frame
+    draw(0);
 
-    // Pin the section; pinSpacing:true adds real scroll height below
+    const wrapper    = wrapperRef.current!;
+    const endOffset  = window.innerHeight * SCROLL_MULTIPLIER;
+    const endStr     = `+=${endOffset}`;
+
+    // ── Pin sticky div ──────────────────────────────────────────────────────
     ScrollTrigger.create({
-      trigger   : section,
-      start     : 'top top',
-      end       : `+=${STORY_PX}`,
-      pin       : true,
-      pinSpacing: true,
+      trigger      : wrapper,
+      start        : 'top top',
+      end          : endStr,
+      pin          : stickyRef.current,
+      pinSpacing   : false, // wrapper provides the scroll height
       anticipatePin: 1,
     });
 
-    // Frame scrub
-    const obj = { f: 0 };
-    gsap.to(obj, {
-      f: frameCount - 1,
+    // ── Frame scrub ─────────────────────────────────────────────────────────
+    const proxy = { f: 0 };
+    gsap.to(proxy, {
+      f   : frameCount - 1,
       ease: 'none',
       scrollTrigger: {
-        trigger : section,
-        start   : 'top top',
-        end     : `+=${STORY_PX}`,
-        scrub   : 0.5,
-        onUpdate: () => {
-          const idx = Math.round(obj.f);
-          if (idx !== currentIdx.current) {
-            currentIdx.current = idx;
-            drawFrame(idx);
-          }
+        trigger  : wrapper,
+        start    : 'top top',
+        end      : endStr,
+        scrub    : 0.5,
+        onUpdate : self => {
+          drawAt(Math.round(self.progress * (frameCount - 1)));
         },
       },
     });
 
-    // Text: fade + scale + blur out on scroll down → reverses on scroll up
-    const textEls = [nameRef.current, roleRef.current, aboutRef.current, socialsRef.current];
-    gsap.fromTo(
-      textEls,
-      { opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' },
+    // ── Text block fade-out ─────────────────────────────────────────────────
+    gsap.to(
+      [nameRef.current, roleRef.current, aboutRef.current, socialsRef.current],
       {
         opacity: 0,
-        scale  : 0.78,
-        y      : -55,
-        filter : 'blur(8px)',
+        y      : -80,
+        scale  : 0.8,
+        filter : 'blur(10px)',
+        stagger: 0.07,
         ease   : 'power2.in',
-        stagger: 0.06,
         scrollTrigger: {
-          trigger : section,
-          start   : 'top top',
-          end     : `+=${STORY_PX * 0.28}`,
-          scrub   : 1,
+          trigger  : wrapper,
+          start    : 'top top',
+          end      : `+=${endOffset * 0.35}`,
+          scrub    : 1.2,
         },
       }
     );
 
-    // Scroll hint out
-    gsap.fromTo(
-      scrollHintRef.current,
-      { opacity: 1 },
-      {
-        opacity: 0,
-        scrollTrigger: {
-          trigger : section,
-          start   : 'top top',
-          end     : `+=${STORY_PX * 0.12}`,
-          scrub   : 0.8,
-        },
-      }
-    );
+    // ── Scroll hint fade ────────────────────────────────────────────────────
+    gsap.to(hintRef.current, {
+      opacity: 0,
+      scrollTrigger: {
+        trigger: wrapper,
+        start  : 'top top',
+        end    : `+=${endOffset * 0.12}`,
+        scrub  : 0.6,
+      },
+    });
 
-    // Canvas: slow zoom
+    // ── Canvas slow zoom ────────────────────────────────────────────────────
     gsap.fromTo(
       canvasRef.current,
       { scale: 1 },
       {
-        scale: 1.07,
-        ease: 'none',
+        scale: 1.1,
+        ease : 'none',
         scrollTrigger: {
-          trigger : section,
-          start   : 'top top',
-          end     : `+=${STORY_PX * 0.6}`,
-          scrub   : 1.2,
+          trigger: wrapper,
+          start  : 'top top',
+          end    : `+=${endOffset * 0.7}`,
+          scrub  : 1.5,
         },
       }
     );
 
-    // Canvas: fade out at the end
+    // ── Canvas fade at end ──────────────────────────────────────────────────
     gsap.to(canvasRef.current, {
       opacity: 0,
-      ease: 'power2.in',
+      ease   : 'power2.in',
       scrollTrigger: {
-        trigger : section,
-        start   : `+=${STORY_PX * 0.83}`,
-        end     : `+=${STORY_PX}`,
-        scrub   : 1,
+        trigger: wrapper,
+        start  : `top+=${endOffset * 0.85}`,
+        end    : `top+=${endOffset}`,
+        scrub  : 1,
       },
     });
 
     ScrollTrigger.refresh();
 
-    const onResize = () => { drawFrame(currentIdx.current); ScrollTrigger.refresh(); };
-    window.addEventListener('resize', onResize);
-    return () => {
-      ScrollTrigger.getAll().forEach(t => t.kill());
-      window.removeEventListener('resize', onResize);
-    };
-  }, [loaded, frameCount]);
+    return () => ScrollTrigger.getAll().forEach(t => t.kill());
+  }, [loaded, frameCount, draw, drawAt]);
 
-  // ── entrance animation ───────────────────────────────────────────────────
+  // ── ENTRANCE ANIMATION ────────────────────────────────────────────────────
   useEffect(() => {
     if (!loaded) return;
-    gsap.timeline({ delay: 0.25 })
-      .from(nameRef.current,       { opacity: 0, y: 38, duration: 1,   ease: 'power3.out' })
-      .from(roleRef.current,       { opacity: 0, y: 22, duration: 0.8, ease: 'power3.out' }, '-=0.6')
-      .from(aboutRef.current,      { opacity: 0, y: 22, duration: 0.8, ease: 'power3.out' }, '-=0.55')
-      .from(socialsRef.current,    { opacity: 0, y: 22, duration: 0.7, ease: 'power3.out' }, '-=0.5')
-      .from(scrollHintRef.current, { opacity: 0,        duration: 0.5                     }, '-=0.3');
+    gsap.timeline({ delay: 0.3 })
+      .from(nameRef.current,    { opacity: 0, y: 50, duration: 1.2, ease: 'power3.out' })
+      .from(roleRef.current,    { opacity: 0, y: 30, duration: 1.0, ease: 'power3.out' }, '-=0.8')
+      .from(aboutRef.current,   { opacity: 0, y: 30, duration: 1.0, ease: 'power3.out' }, '-=0.65')
+      .from(socialsRef.current, { opacity: 0, y: 20, duration: 0.9, ease: 'power3.out' }, '-=0.55')
+      .from(hintRef.current,    { opacity: 0,        duration: 0.8                     }, '-=0.4');
   }, [loaded]);
 
-  // ─── render ──────────────────────────────────────────────────────────────
+  // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        /* ─ hero section ─────────────────────────────────────────────────── */
-        .hero-section {
-          position: relative;
-          width: 100%;
-          height: 100vh;
-          overflow: hidden;          /* clip the canvas zoom — pin spacer is a sibling, not a child */
-          background: var(--bg);
-        }
-
-        /* ─ canvas: covers the full section ─────────────────────────────── */
-        .hero-canvas {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          display: block;
-          object-fit: cover;
-          transform-origin: center center;
-          will-change: transform, opacity;
-        }
-
-        /* ─ vignette ─────────────────────────────────────────────────────── */
-        .hero-vignette {
-          position: absolute;
-          inset: 0;
-          z-index: 1;
-          pointer-events: none;
-          background:
-            radial-gradient(ellipse 90% 55% at 50% 100%, rgba(6,6,8,0.93) 0%, transparent 70%),
-            radial-gradient(ellipse 100% 38% at 50% 0%,  rgba(6,6,8,0.65) 0%, transparent 60%),
-            linear-gradient(to right,
-              rgba(6,6,8,0.55) 0%, transparent 28%,
-              transparent 72%, rgba(6,6,8,0.55) 100%);
-        }
-
-        /* ─ text overlay ─────────────────────────────────────────────────── */
-        .hero-overlay {
-          position: absolute;
-          z-index: 10;
-          bottom: 10vh;
-          left: 6vw;
-          max-width: 560px;
-        }
-
-        .hero-name {
-          font-family: 'Syne', sans-serif;
-          font-weight: 800;
-          font-size: clamp(2.6rem, 5vw, 4.8rem);
-          line-height: 1.02;
-          letter-spacing: -0.025em;
-          color: #fff;
-          margin-bottom: 0.4em;
-        }
-
-        .hero-name .acc { color: var(--accent); }
-
-        .hero-role {
-          font-family: 'DM Mono', monospace;
-          font-weight: 300;
-          font-size: clamp(0.76rem, 1.15vw, 0.96rem);
-          letter-spacing: 0.22em;
-          text-transform: uppercase;
-          color: var(--accent);
-          margin-bottom: 1.15em;
-        }
-
-        .hero-about {
-          font-family: 'Syne', sans-serif;
-          font-weight: 400;
-          font-size: clamp(0.84rem, 1.1vw, 0.97rem);
-          line-height: 1.78;
-          color: var(--dim);
-          max-width: 400px;
-          margin-bottom: 2em;
-        }
-
-        /* ─ socials ──────────────────────────────────────────────────────── */
-        .hero-socials { display: flex; gap: 12px; flex-wrap: wrap; }
-
-        .social-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 18px 8px 12px;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 100px;
-          text-decoration: none;
-          color: #fff;
-          font-family: 'DM Mono', monospace;
-          font-size: 0.77rem;
-          letter-spacing: 0.06em;
-          backdrop-filter: blur(14px);
-          transition: background 0.22s, border-color 0.22s, transform 0.18s;
-        }
-
-        .social-pill:hover {
-          background: rgba(232,255,71,0.13);
-          border-color: var(--accent);
-          transform: translateY(-2px);
-        }
-
-        .social-pill img {
-          width: 15px; height: 15px;
-          filter: invert(1) brightness(1.5);
-          object-fit: contain;
-        }
-
-        /* ─ scroll hint ──────────────────────────────────────────────────── */
-        .scroll-hint {
-          position: absolute;
-          z-index: 10;
-          bottom: 10vh;
-          right: 5vw;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-          font-family: 'DM Mono', monospace;
-          font-size: 0.67rem;
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-          color: var(--dim);
-        }
-
-        .scroll-line {
-          width: 1px;
-          height: 52px;
-          background: linear-gradient(to bottom, transparent, var(--accent));
-          animation: lineAnim 1.9s ease-in-out infinite;
-        }
-
-        @keyframes lineAnim {
-          0%   { transform: scaleY(0); transform-origin: top; }
-          50%  { transform: scaleY(1); transform-origin: top; }
-          51%  { transform: scaleY(1); transform-origin: bottom; }
-          100% { transform: scaleY(0); transform-origin: bottom; }
-        }
-
-        /* ─ loading overlay ──────────────────────────────────────────────── */
-        .loading-overlay {
-          position: fixed; inset: 0; z-index: 200;
-          background: var(--bg);
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          gap: 24px;
-          font-family: 'DM Mono', monospace;
-          color: var(--dim);
-          font-size: 0.8rem;
-          letter-spacing: 0.12em;
-          transition: opacity 0.7s ease, visibility 0.7s ease;
-        }
-        .loading-overlay.gone {
-          opacity: 0;
-          visibility: hidden;
-          pointer-events: none;
-        }
-        .load-track {
-          width: 220px; height: 1px;
-          background: var(--border); border-radius: 2px; overflow: hidden;
-        }
-        .load-fill {
-          height: 100%;
-          background: var(--accent); border-radius: 2px;
-          transition: width 0.1s linear;
-        }
-        .load-pct { color: var(--accent); font-size: 0.72rem; }
-      `}</style>
-
-      {/* Loading overlay */}
-      <div className={`loading-overlay${loaded ? ' gone' : ''}`}>
-        <Logo />
-        <div className="load-track">
-          <div className="load-fill" style={{ width: `${loadPct}%` }} />
+      {/* ── Loading overlay ── */}
+      
+      {/* {!loaded && (
+        <div
+          style={{
+            position      : 'fixed',
+            inset         : 0,
+            zIndex        : 9999,
+            background    : '#050505',
+            display       : 'flex',
+            flexDirection : 'column',
+            alignItems    : 'center',
+            justifyContent: 'center',
+            gap           : '20px',
+          }}
+        >
+          <div style={{ width: 220, height: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${loadPct}%`, background: '#e81f4a', transition: 'width 0.1s' }} />
+          </div>
+          <p style={{ color: '#e81f4a', fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.3em' }}>
+            {loadPct}% — LOADING
+          </p>
         </div>
-        <span className="load-pct">{loadPct}%</span>
-        <span>Preparing experience…</span>
-      </div>
+      )} */}
 
       <NavBar />
 
-      <section ref={sectionRef} className="hero-section">
-        <canvas ref={canvasRef} className="hero-canvas" />
-        <div className="hero-vignette" />
+      {/*
+        ── WRAPPER ────────────────────────────────────────────────────────────
+        This gives the page real scroll height.
+        MUST be position:relative so ScrollTrigger can measure it.
+        MUST NOT be overflow:hidden.
+      */}
+      <div
+        ref={wrapperRef}
+        style={{
+          position: 'relative',
+          width   : '100%',
+          // scroll distance = SCROLL_MULTIPLIER × 100vh
+          // +1 for the initial 100vh visible area
+          height  : `${(SCROLL_MULTIPLIER + 1) * 100}vh`,
+          background: '#050505',
+        }}
+      >
+        {/*
+          ── STICKY ────────────────────────────────────────────────────────
+          Sticks to top while wrapper scrolls.
+          MUST be: position:sticky, top:0, exact 100vh height.
+          MUST have overflow:hidden to clip canvas zoom.
+        */}
+        <div
+          ref={stickyRef}
+          style={{
+            position: 'sticky',
+            top     : 0,
+            left    : 0,
+            width   : '100%',
+            height  : '100vh',
+            overflow: 'hidden',
+          }}
+        >
+          {/*
+            ── CANVAS ──────────────────────────────────────────────────────
+            MUST be position:absolute, inset:0.
+            Width/height 100% of sticky parent = 100vw × 100vh.
+          */}
+          <canvas
+            ref={canvasRef}
+            style={{
+              position      : 'absolute',
+              top           : 0,
+              left          : 0,
+              width         : '100%',
+              height        : '100%',
+              display       : 'block',
+              transformOrigin: 'center center',
+              willChange    : 'transform, opacity',
+            }}
+          />
 
-        <div className="hero-overlay">
-          <h1 ref={nameRef} className="hero-name">
-            {info.name.split(' ').map((word, i) =>
-              i === 0
-                ? <span key={i} className="acc">{word}&nbsp;</span>
-                : <span key={i}>{word}</span>
-            )}
-          </h1>
+          {/* ── Vignette ── */}
+          <div
+            style={{
+              position      : 'absolute',
+              inset         : 0,
+              zIndex        : 2,
+              pointerEvents : 'none',
+              background    : `
+                radial-gradient(ellipse 90% 55% at 50% 100%, rgba(5,5,5,0.97) 0%, transparent 68%),
+                radial-gradient(ellipse 100% 35% at 50% 0%,  rgba(5,5,5,0.65) 0%, transparent 55%),
+                linear-gradient(to right, rgba(5,5,5,0.5) 0%, transparent 22%, transparent 78%, rgba(5,5,5,0.5) 100%)
+              `,
+            }}
+          />
 
-          <p ref={roleRef} className="hero-role">{info.role}</p>
-          <p ref={aboutRef} className="hero-about">{info.about}</p>
+          {/* ── Text Overlay ── */}
+          <div
+            style={{
+              position : 'absolute',
+              zIndex   : 10,
+              bottom   : '12vh',
+              left     : '6vw',
+              maxWidth : 600,
+            }}
+          >
+            <h1
+              ref={nameRef}
+              style={{
+                fontFamily   : "'Syne', sans-serif",
+                fontWeight   : 800,
+                fontSize     : 'clamp(2.8rem, 6vw, 5.5rem)',
+                lineHeight   : 1,
+                letterSpacing: '-0.03em',
+                color        : '#fff',
+                margin       : 0,
+              }}
+            >
+              {info.name.split(' ').map((word, i) => (
+                <span key={i} style={{ color: i === 0 ? '#e81f4a' : '#fff' }}>
+                  {word}{i < info.name.split(' ').length - 1 ? ' ' : ''}
+                </span>
+              ))}
+            </h1>
 
-          <div ref={socialsRef} className="hero-socials">
-            {info.socials.map(s => (
-              <a key={s.name} href={s.url} target="_blank" rel="noopener noreferrer" className="social-pill">
-                <img src={s.iconUrl} alt={s.name} />
-                {s.name}
-              </a>
-            ))}
+            <p
+              ref={roleRef}
+              style={{
+                fontFamily   : "'DM Mono', monospace",
+                fontSize     : 'clamp(0.78rem, 1.1vw, 1rem)',
+                letterSpacing: '0.25em',
+                textTransform: 'uppercase',
+                color        : '#e81f4a',
+                margin       : '0.8em 0 1.3em',
+              }}
+            >
+              {info.role}
+            </p>
+
+            <p
+              ref={aboutRef}
+              style={{
+                fontSize  : 'clamp(0.88rem, 1.05vw, 1rem)',
+                lineHeight: 1.75,
+                color     : 'rgba(255,255,255,0.6)',
+                maxWidth  : 440,
+              }}
+            >
+              {info.about}
+            </p>
+          </div>
+
+          {/* ── Scroll Hint ── */}
+          <div
+            ref={hintRef}
+            style={{
+              position     : 'absolute',
+              bottom       : '10vh',
+              right        : '5vw',
+              zIndex       : 10,
+              display      : 'flex',
+              flexDirection: 'column',
+              alignItems   : 'center',
+              gap          : 8,
+              fontFamily   : "'DM Mono', monospace",
+              fontSize     : 'clamp(0.6rem, 0.8vw, 0.72rem)',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              color        : 'rgba(255,255,255,0.35)',
+            }}
+          >
+            <span>Scroll</span>
+            <div
+              style={{
+                width     : 1,
+                height    : 52,
+                background: 'linear-gradient(to bottom, transparent, #e81f4a)',
+                animation : 'pulse 1.8s ease-in-out infinite',
+              }}
+            />
           </div>
         </div>
-
-        <div ref={scrollHintRef} className="scroll-hint">
-          <span>Scroll</span>
-          <div className="scroll-line" />
-        </div>
-      </section>
+      </div>
     </>
   );
 };
